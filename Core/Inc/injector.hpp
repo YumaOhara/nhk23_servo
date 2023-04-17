@@ -22,16 +22,16 @@ namespace Nhk23Servo
 
 		MotorFeedback(const CRSLib::Can::DataField::Buffer& buffer) noexcept
 		{
-			angle = buffer[0] | (buffer[1] << 8);
-			speed = buffer[2] | (buffer[3] << 8);
-			current = buffer[4] | (buffer[5] << 8);
+			angle = (u8)buffer[0] | (u8)(buffer[1] << 8);
+			speed = CRSLib::bit_cast<i16>((u8)buffer[2] | (u8)(buffer[3] << 8));
+			current = CRSLib::bit_cast<i16>((u8)buffer[4] | (u8)(buffer[5] << 8));
 		}
 	};
 
 	template<CRSLib::is_std_ratio auto gear_ratio_>
 	class Injector final
 	{
-		static constexpr float gear_ratio = CRSLib::std_ratio_to_float(gear_ratio_);
+		static constexpr float gear_ratio = CRSLib::ratio_to_floating(gear_ratio_);
 		static constexpr i32 max_angle = 8192 * gear_ratio;
 		static constexpr i32 half_angle = 8192 * gear_ratio / 2;
 		static constexpr i32 enough_near_start_angle = max_angle / 360;
@@ -58,7 +58,7 @@ namespace Nhk23Servo
 
 			void update(const MotorFeedback& state) noexcept
 			{
-				if(std::signbit(state.angle - motor_feedback.angle) ^ signbit(state.speed))
+				if(std::signbit(state.angle - motor_feedback.angle) ^ std::signbit(state.speed))
 				{
 					is_injected = true;
 					++motor_rotation_count;
@@ -72,7 +72,8 @@ namespace Nhk23Servo
 		CRSLib::Math::Pid<i16> current_pid;
 		CRSLib::Math::Pid<i16> speed_pid;
 
-		Injector(const CRSLib::Math::Pid<float>& current_pid, const CRSLib::Math::Pid<float>& speed_pid) noexcept
+		public:
+		Injector(const CRSLib::Math::Pid<i16>& current_pid, const CRSLib::Math::Pid<i16>& speed_pid) noexcept
 			:
 			current_pid(current_pid),
 			speed_pid(speed_pid)
@@ -80,18 +81,19 @@ namespace Nhk23Servo
 
 		void update_motor_state(const MotorFeedback& state) noexcept
 		{
-			motor_state = state;
+			motor_state.update(state);
 		}
 
 		void inject_start(const i16 speed) noexcept
 		{
 			if(std::holds_alternative<Idle>(control_state))
 			{
-				control_state.emplace<Injecting>(speed);
+				control_state.template emplace<Injecting>(speed);
 			}
 		}
 
-		friend struct UpdateCurrent final
+		private:
+		struct UpdateCurrent final
 		{
 			Injector& injector;
 
@@ -109,7 +111,7 @@ namespace Nhk23Servo
 			{
 				if(injector.motor_state.clear_if_injected())
 				{
-					injector.inject_speed.emplace<Stopping>();
+					injector.inject_speed.template emplace<Stopping>();
 					return injector.calc_target_current_from_speed(0.0);
 				}
 				return injector.calc_target_current_from_speed(injecting.speed);
@@ -119,7 +121,7 @@ namespace Nhk23Servo
 			{
 				if(injector.motor_state.speed < enough_slow_speed)
 				{
-					injector.inject_speed.emplace<SettingUp>();
+					injector.inject_speed.template emplace<SettingUp>();
 				}
 				return injector.calc_target_current_from_speed(0.0);
 			}
@@ -128,13 +130,14 @@ namespace Nhk23Servo
 			{
 				if(std::abs(injector.motor_state.degree - half_angle) < enough_near_start_angle)
 				{
-					injector.inject_speed.emplace<Idle>();
+					injector.inject_speed.template emplace<Idle>();
 					return injector.calc_target_current_from_speed(0.0);
 				}
 				return injector.calc_target_current_from_speed(setting_up_speed);
 			}
 		};
 
+		public:
 		u16 update_target() noexcept
 		{
 			return std::visit(UpdateCurrent(*this), control_state);

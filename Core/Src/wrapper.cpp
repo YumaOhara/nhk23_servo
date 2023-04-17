@@ -1,4 +1,7 @@
-#include "main.h"
+#include <ratio>
+
+#include "can.h"
+#include "tim.h"
 
 #include <CRSLibtmp/std_type.hpp>
 #include <CRSLibtmp/Can/Stm32/RM0008/can_bus.hpp>
@@ -12,7 +15,7 @@
 using namespace CRSLib::Can::Stm32::RM0008;
 using namespace Nhk23Servo;
 
-extern "C" const char * error_msg{nullptr};
+const char * error_msg{nullptr};
 
 namespace
 {
@@ -32,19 +35,19 @@ namespace
 		Trunk
 	};
 
-	Injector<20.35> tusl_l
+	Injector<std::ratio<2035, 100>{}> tusl_l
 	{
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}}
 	};
 	
-	Injector<18.75> tusl_r
+	Injector<std::ratio<1875, 100>{}> tusl_r
 	{
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}}
 	};
 
-	Injector<14.85> trunk
+	Injector<std::ratio<1485, 100>{}> trunk
 	{
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}}
@@ -64,7 +67,7 @@ extern "C" void main_cpp(CAN_HandleTypeDef *const hcan);
 void main_cpp(CAN_HandleTypeDef *const hcan)
 {
 	// PWMなど初期化
-	HAL_TIM_PWM_Start(htim1,TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_2);
 	// *先に*フィルタの初期化を行う。先にCanBusを初期化すると先にNormalModeに以降してしまい、これはRM0008に違反する。
 	init_can_other(hcan);
 	// 通信開始
@@ -115,7 +118,7 @@ namespace
 			error_msg = "Fail to set filter for Servo";
 			Error_Handler();
 		}
-		FilterManager::activate(GreetFromRos);
+		FilterManager::activate(Servo);
 
 		if(!FilterManager::set_filter(InjectSpeed, FilterManager::make_mask32(0x1A0, 0x7FC)))
 		{
@@ -155,23 +158,23 @@ namespace
 	/// @param message
 	void servo_callback(const ReceivedMessage& message) noexcept
 	{
-		switch(message.data.buffer[0])
+		switch((InjectMotor)message.data.buffer[0])
 		{
 			case TuskL:
 			{
-				__HAL_TIM_SET_COMPARE(htim1,TIM_CHANNEL_2,1100);
+				__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,1100);
 			}
 			break;
 
 			case TuskR:
 			{
-				__HAL_TIM_SET_COMPARE(htim1,TIM_CHANNEL_2,390);
+				__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,390);
 			}
 			break;
 
 			case Trunk:
 			{
-				__HAL_TIM_SET_COMPARE(htim1,TIM_CHANNEL_2,700);
+				__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,700);
 			}
 		}
 	}
@@ -180,8 +183,8 @@ namespace
 	/// @param message
 	void inject_callback(const ReceivedMessage& message) noexcept
 	{
-		const auto which_motor = message.id - 0x201;
-		const i16 speed = message.data.buffer[0] | (message.data.buffer[1] << 8);
+		const auto which_motor = (InjectMotor)(message.id - 0x201);
+		const i16 speed = (u8)message.data.buffer[0] | (u8)(message.data.buffer[1] << 8);
 		
 		switch(which_motor)
 		{
