@@ -32,12 +32,31 @@ namespace
 		Trunk
 	};
 
-	Injector injectors[3]
+	Injector<20.35> tusl_l
 	{
-		Injector{CRSLib::Math::Pid<float>{0.1f, 0.1f, 0.1f}, CRSLib::Math::Pid<float>{0.1f, 0.1f, 0.1f}}, // TuskL
-		Injector{CRSLib::Math::Pid<float>{0.1f, 0.1f, 0.1f}, CRSLib::Math::Pid<float>{0.1f, 0.1f, 0.1f}}, // TuskR
-		Injector{CRSLib::Math::Pid<float>{0.1f, 0.1f, 0.1f}, CRSLib::Math::Pid<float>{0.1f, 0.1f, 0.1f}} // Trunk
+		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
+		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}}
 	};
+	
+	Injector<18.75> tusl_r
+	{
+		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
+		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}}
+	};
+
+	Injector<14.85> trunk
+	{
+		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
+		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}}
+	};
+
+	constexpr u32 servo_id = 0x1A0;
+	constexpr u32 inject_speed_id_base = 0x1B0;
+	constexpr u32 inject_speed_id_mask = 0x7FC;
+	constexpr u32 inject_feedback_id_base = 0x1B4;
+	constexpr u32 inject_feedback_id_mask = 0x7F3;
+	constexpr u32 motor_state_id_base = 0x201;
+	constexpr u32 motor_state_id_mask = 0x7FC;
 }
 
 extern "C" void main_cpp(CAN_HandleTypeDef *const hcan);
@@ -98,13 +117,12 @@ namespace
 		}
 		FilterManager::activate(GreetFromRos);
 
-		if(!FilterManager::set_filter(InjectSpeed, FilterManager::make_mask32(0x1A0, 0x7FF)))
+		if(!FilterManager::set_filter(InjectSpeed, FilterManager::make_mask32(0x1A0, 0x7FC)))
 		{
 			error_msg = "Fail to set filter for InjectSpeed";
 			Error_Handler();
 		}
 		FilterManager::activate(InjectSpeed);
-		constexpr u32 inject_feedback = 0x1A1;
 
 		/// @todo C620のIDを1~3に。
 		if(!FilterManager::set_filter(MotorState, FilterManager::make_mask32(0x201, 0x7FC)))
@@ -162,7 +180,28 @@ namespace
 	/// @param message
 	void inject_callback(const ReceivedMessage& message) noexcept
 	{
+		const auto which_motor = message.id - 0x201;
+		const i16 speed = message.data.buffer[0] | (message.data.buffer[1] << 8);
+		
+		switch(which_motor)
+		{
+			case TuskL:
+			{
+				tusl_l.inject_start(speed);
+			}
+			break;
 
+			case TuskR:
+			{
+				tusl_r.inject_start(speed);
+			}
+			break;
+
+			case Trunk:
+			{
+				trunk.inject_start(speed);
+			}
+		}
 	}
 
 	/// @brief fifo1のコールバック
@@ -181,11 +220,24 @@ namespace
 	{
 		const auto which_motor = message.id - 0x201;
 		
-		MotorState motor_state;
-		motor_state.degree = message.data[0] | (message.data[1] << 8);
-		motor_state.speed = message.data[2] | (message.data[3] << 8);
-		motor_state.current = message.data[4] | (message.data[5] << 8);
+		switch(which_motor)
+		{
+			case TuskL:
+			{
+				tusl_l.update_motor_state(message.data.buffer);
+			}
+			break;
 
+			case TuskR:
+			{
+				tusl_r.update_motor_state(message.data.buffer);
+			}
+			break;
 
+			case Trunk:
+			{
+				trunk.update_motor_state(message.data.buffer);
+			}
+		}
 	}
 }
