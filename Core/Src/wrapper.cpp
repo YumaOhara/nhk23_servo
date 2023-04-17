@@ -44,6 +44,8 @@ extern "C" void main_cpp(CAN_HandleTypeDef *const hcan);
 
 void main_cpp(CAN_HandleTypeDef *const hcan)
 {
+	// PWMなど初期化
+	
 	// *先に*フィルタの初期化を行う。先にCanBusを初期化すると先にNormalModeに以降してしまい、これはRM0008に違反する。
 	init_can_other(hcan);
 	// 通信開始
@@ -135,7 +137,25 @@ namespace
 	/// @param message
 	void servo_callback(const ReceivedMessage& message) noexcept
 	{
+		switch(message.data.buffer[0])
+		{
+			case TuskL:
+			{
+				
+			}
+			break;
 
+			case TuskR:
+			{
+
+			}
+			break;
+
+			case Trunk:
+			{
+
+			}
+		}
 	}
 
 	/// @brief インジェクターのコールバック
