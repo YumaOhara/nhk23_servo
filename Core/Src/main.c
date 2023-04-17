@@ -89,17 +89,17 @@ int main(void)
   MX_TIM1_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
-  main_cpp();
+  main_cpp(hcan);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+  // while (1)
+  // {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+  // }
   /* USER CODE END 3 */
 }
 
