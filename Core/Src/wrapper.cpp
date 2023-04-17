@@ -64,7 +64,7 @@ extern "C" void main_cpp(CAN_HandleTypeDef *const hcan);
 void main_cpp(CAN_HandleTypeDef *const hcan)
 {
 	// PWMなど初期化
-	
+	HAL_TIM_PWM_Start(htim1,TIM_CHANNEL_2);
 	// *先に*フィルタの初期化を行う。先にCanBusを初期化すると先にNormalModeに以降してしまい、これはRM0008に違反する。
 	init_can_other(hcan);
 	// 通信開始
@@ -159,19 +159,19 @@ namespace
 		{
 			case TuskL:
 			{
-				
+				__HAL_TIM_SET_COMPARE(htim1,TIM_CHANNEL_2,1100);
 			}
 			break;
 
 			case TuskR:
 			{
-
+				__HAL_TIM_SET_COMPARE(htim1,TIM_CHANNEL_2,390);
 			}
 			break;
 
 			case Trunk:
 			{
-
+				__HAL_TIM_SET_COMPARE(htim1,TIM_CHANNEL_2,700);
 			}
 		}
 	}
