@@ -35,13 +35,13 @@ namespace
 		Trunk
 	};
 
-	Injector<std::ratio<2035, 100>{}> tusl_l
+	Injector<std::ratio<2035, 100>{}> tusk_l
 	{
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}}
 	};
 
-	Injector<std::ratio<1875, 100>{}> tusl_r
+	Injector<std::ratio<1875, 100>{}> tusk_r
 	{
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}}
@@ -86,14 +86,14 @@ extern "C" void main_cpp()
 		}
 
 		CRSLib::Can::DataField data{.buffer={}, .dlc=8};
-		u16 tmp = tusk_l.update_target();
-		std::memcpy(data.buffer, &tmp, sizeof(tmp));
+		i16 tmp = tusk_l.update_target();
+		std::memcpy(data.buffer, &tmp, sizeof(i16));
 		tmp = tusk_r.update_target();
-		std::memcpy(data.buffer + 2, &tmp, sizeof(tmp));
+		std::memcpy(data.buffer + 2, &tmp, sizeof(i16));
 		tmp = trunk.update_target();
-		std::memcpy(data.buffer + 4, &tmp, sizeof(tmp));
+		std::memcpy(data.buffer + 4, &tmp, sizeof(i16));
 
-		can_bus.post(0x200, data);
+		(void)can_bus.post(0x200, data);
 	}
 }
 
@@ -198,13 +198,13 @@ namespace
 		{
 			case TuskL:
 			{
-				tusl_l.inject_start(speed);
+				tusk_l.inject_start(speed);
 			}
 			break;
 
 			case TuskR:
 			{
-				tusl_r.inject_start(speed);
+				tusk_r.inject_start(speed);
 			}
 			break;
 
@@ -235,13 +235,13 @@ namespace
 		{
 			case TuskL:
 			{
-				tusl_l.update_motor_state(message.data.buffer);
+				tusk_l.update_motor_state(message.data.buffer);
 			}
 			break;
 
 			case TuskR:
 			{
-				tusl_r.update_motor_state(message.data.buffer);
+				tusk_r.update_motor_state(message.data.buffer);
 			}
 			break;
 

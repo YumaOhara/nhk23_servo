@@ -89,7 +89,7 @@ int main(void)
   MX_TIM1_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
-
+  main_cpp();
   /* USER CODE END 2 */
 
   /* Infinite loop */
