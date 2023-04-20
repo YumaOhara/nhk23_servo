@@ -19,7 +19,7 @@ const char * error_msg{nullptr};
 
 namespace
 {
-	void init_can_other(CAN_HandleTypeDef *const hcan) noexcept;
+	void init_can_other() noexcept;
 
 	void fifo0_callback(const ReceivedMessage& message) noexcept;
 	void servo_callback(const ReceivedMessage& message) noexcept;
@@ -40,7 +40,7 @@ namespace
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}}
 	};
-	
+
 	Injector<std::ratio<1875, 100>{}> tusl_r
 	{
 		CRSLib::Math::Pid{i16{0}, i16{0}, i16{0}},
@@ -62,14 +62,12 @@ namespace
 	constexpr u32 motor_state_id_mask = 0x7FC;
 }
 
-extern "C" void main_cpp(CAN_HandleTypeDef *const hcan);
-
-void main_cpp(CAN_HandleTypeDef *const hcan)
+extern "C" void main_cpp()
 {
 	// PWMなど初期化
 	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_2);
 	// *先に*フィルタの初期化を行う。先にCanBusを初期化すると先にNormalModeに以降してしまい、これはRM0008に違反する。
-	init_can_other(hcan);
+	init_can_other();
 	// 通信開始
 	CanBus can_bus{can1};
 
@@ -86,17 +84,27 @@ void main_cpp(CAN_HandleTypeDef *const hcan)
 			const auto message = can_bus.receive(Fifo::Fifo1);
 			if(message) fifo1_callback(*message);
 		}
+
+		CRSLib::Can::DataField data{.buffer={}, .dlc=8};
+		u16 tmp = tusk_l.update_target();
+		std::memcpy(data.buffer, &tmp, sizeof(tmp));
+		tmp = tusk_r.update_target();
+		std::memcpy(data.buffer + 2, &tmp, sizeof(tmp));
+		tmp = trunk.update_target();
+		std::memcpy(data.buffer + 4, &tmp, sizeof(tmp));
+
+		can_bus.post(0x200, data);
 	}
 }
 
 
 namespace
 {
-	void init_can_other(CAN_HandleTypeDef *const hcan) noexcept
+	void init_can_other() noexcept
 	{
 		// ここでCANのMSP(ピンやクロックなど。ここまで書ききるのはキツかった...)の初期化を行う
-		HAL_CAN_DeInit(hcan);
-		HAL_CAN_MspInit(hcan);
+		HAL_CAN_DeInit(&hcan);
+		HAL_CAN_MspInit(&hcan);
 
 		enum FilterName : u8
 		{
@@ -141,7 +149,7 @@ namespace
 	/// @attention 十分に短い処理しか書かないこと。
 
 	/// @brief fifo0のコールバック
-	/// @param message 
+	/// @param message
 	void fifo0_callback(const ReceivedMessage& message) noexcept
 	{
 		if(message.id == 0x190)
@@ -185,7 +193,7 @@ namespace
 	{
 		const auto which_motor = (InjectMotor)(message.id - 0x201);
 		const i16 speed = (u8)message.data.buffer[0] | (u8)(message.data.buffer[1] << 8);
-		
+
 		switch(which_motor)
 		{
 			case TuskL:
@@ -208,7 +216,7 @@ namespace
 	}
 
 	/// @brief fifo1のコールバック
-	/// @param message 
+	/// @param message
 	void fifo1_callback(const ReceivedMessage& message) noexcept
 	{
 		if(0x201 <= message.id && message.id <= 0x203)
@@ -222,7 +230,7 @@ namespace
 	void motor_state_callback(const ReceivedMessage& message) noexcept
 	{
 		const auto which_motor = message.id - 0x201;
-		
+
 		switch(which_motor)
 		{
 			case TuskL:

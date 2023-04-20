@@ -1,3 +1,6 @@
 #pragma once
 
- void main_cpp(CAN_HandleTypeDef *const hcan);
+#ifdef __cplusplus
+extern "C"
+#endif
+void main_cpp(void);
