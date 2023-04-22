@@ -37,14 +37,22 @@ namespace Nhk23Servo
 		Trunk
 	};
 
-	std::array<Injector, 3> injectors
-	{
-		Injector{20.35, CRSLib::Math::Pid<i16>{.p=1, .i=0, .d=0}},
-		Injector{18.75, CRSLib::Math::Pid<i16>{.p=1, .i=0, .d=0}},
-		Injector{14.85, CRSLib::Math::Pid<i16>{.p=1, .i=0, .d=0}}
-	};
+//	std::array<Injector, 3> injectors
+//	{
+//		Injector{20.35, CRSLib::Math::Pid<i16>{.p=1, .i=0, .d=0}},
+//		Injector{18.75, CRSLib::Math::Pid<i16>{.p=1, .i=0, .d=0}},
+//		Injector{14.85, CRSLib::Math::Pid<i16>{.p=1, .i=0, .d=0}}
+//	};
 }
 
+i16 speed = 0;
+Nhk23Servo::Index selected = Nhk23Servo::TuskL;
+u32 time = 0;
+volatile i32 duration = 100;
+volatile i32 speed_max = 0x3c'00;
+volatile int debug_var = 0;
+
+volatile int hoge = 0;
 extern "C" void main_cpp()
 {
 
@@ -55,8 +63,8 @@ extern "C" void main_cpp()
 	// 通信開始
 	CanBus can_bus{can1};
 
-	// まさか数日間動かすなんてことないだろ
-	auto time = HAL_GetTick();
+//	// まさか数日間動かすなんてことないだろ
+//	auto time = HAL_GetTick();
 
 	while(true)
 	{
@@ -72,20 +80,34 @@ extern "C" void main_cpp()
 			if(message) Nhk23Servo::fifo1_callback(*message);
 		}
 
-		// C620へ電流指令値を送信
-		if(const auto now = HAL_GetTick(); now - time >= 2)
+//		// C620へ電流指令値を送信
+//		if(const auto now = HAL_GetTick(); now - time >= 2)
+//		{
+//			CRSLib::Can::DataField data{.buffer={}, .dlc=8};
+//			for(u8 i = 0; auto& injector : Nhk23Servo::injectors)
+//			{
+//				const i16 target = injector.run_and_calc_target();
+//				std::memcpy(data.buffer + sizeof(i16) * i, &target, sizeof(i16));
+//				++i;
+//			}
+//
+//			hoge = 1;
+//			(void)can_bus.post(0x200, data);
+//
+//			time = now;
+//		}
+		if(const auto now = HAL_GetTick(); speed != 0 && now - time > duration)
+		{
+			speed = 0;
+			CRSLib::Can::DataField data{.buffer={}, .dlc=8};
+			(void)can_bus.post(0x200, data);
+		}
+		if(speed != 0)
 		{
 			CRSLib::Can::DataField data{.buffer={}, .dlc=8};
-			for(u8 i = 0; auto& injector : Nhk23Servo::injectors)
-			{
-				const i16 target = injector.run_and_calc_target();
-				std::memcpy(data.buffer + sizeof(i16) * i, &target, sizeof(i16));
-				++i;
-			}
-
+			data.buffer[2 * selected] = (byte)((speed & 0xFF'00) >> 8);
+			data.buffer[2 * selected + 1] = (byte)(speed & 0x00'FF);
 			(void)can_bus.post(0x200, data);
-
-			time = now;
 		}
 	}
 }
@@ -196,9 +218,15 @@ namespace Nhk23Servo
 	void inject_callback(const ReceivedMessage& message) noexcept
 	{
 		const auto which = static_cast<Index>(message.id - inject_speed_id_base);
-		const i16 speed = (u8)message.data.buffer[1] << 8 | (u8)(message.data.buffer[0]);
+//		const i16 speed = (u8)message.data.buffer[0] << 8 | (u8)(message.data.buffer[1]);
+//
+//		Nhk23Servo::injectors[which].inject_start(speed);
 
-		Nhk23Servo::injectors[which].inject_start(speed);
+//		speed = (u8)message.data.buffer[0] << 8 | (u8)(message.data.buffer[1]);
+		speed = speed_max;
+		selected = which;
+		time = HAL_GetTick();
+
 	}
 
 	/// @brief fifo1のコールバック
@@ -218,10 +246,10 @@ namespace Nhk23Servo
 		const auto which = static_cast<Index>(message.id - motor_state_id_base);
 
 		Feedback feedback{};
-		feedback.angle = (u32)message.data.buffer[1] << 8 | (u32)(message.data.buffer[0]);
-		feedback.speed = CRSLib::bit_cast<i16>((u16)((u32)message.data.buffer[3] << 8 | (u32)(message.data.buffer[2])));
-		feedback.current = CRSLib::bit_cast<i16>((u16)((u32)message.data.buffer[5] << 8 | (u32)(message.data.buffer[4])));
+		feedback.angle = (u32)message.data.buffer[0] << 8 | (u32)(message.data.buffer[1]);
+		feedback.speed = CRSLib::bit_cast<i16>((u16)((u32)message.data.buffer[2] << 8 | (u32)(message.data.buffer[3])));
+		feedback.current = CRSLib::bit_cast<i16>((u16)((u32)message.data.buffer[4] << 8 | (u32)(message.data.buffer[5])));
 
-		injectors[which].update_motor_state(feedback);
+//		injectors[which].update_motor_state(feedback);
 	}
 }

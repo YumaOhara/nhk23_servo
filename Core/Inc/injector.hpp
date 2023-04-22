@@ -24,7 +24,7 @@ namespace Nhk23Servo
 
 			static constexpr i32 enough_slow_speed = 60;
 			static constexpr i32 setting_up_speed = 60;
-			static constexpr i32 current_max = 0x0080;
+			static constexpr i32 current_max = 0x4;
 		};
 
 		const Constant constant;
