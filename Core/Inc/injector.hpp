@@ -1,127 +1,132 @@
 #pragma once
 
-#include <cmath>
-#include <variant>
-
 #include <CRSLibtmp/std_type.hpp>
-#include <CRSLibtmp/utility.hpp>
 #include <CRSLibtmp/Math/pid.hpp>
+#include "motor_state.hpp"
 
 namespace Nhk23Servo
 {
 	using namespace CRSLib::IntegerTypes;
 
-	/// @todo 設定
-	inline constexpr auto gear_ratio = 16;
-	
-	using Angle = u32;
-	using Speed = i16;
-	using Current = i16;
-
-	template<u8 gear_ratio>
-	class IjectorRecord final
-	{
-		Angle degree; // 精度 8192 * gear_ratio. 射出時に0になる。モーターのdegree * gear_ratio
-		Speed speed; // モーターのspeed
-		Current current; // モーターのcurrent
-		bool is_injected;
-
-		bool clear_if_injected() noexcept
-		{
-			if(is_injected)
-			{
-				is_injected = false;
-				return true;
-			}
-			return false;
-		}
-	};
-
 	class Injector final
 	{
+		struct Constant final
+		{
+			float gear_ratio;
+			i32 barrel_length;
+			i32 idling_point_epsilon;
+
+			Constant(const float gear_ratio) noexcept:
+				gear_ratio(gear_ratio),
+				barrel_length(MotorState::full_angle * gear_ratio / 2),
+				idling_point_epsilon(barrel_length / 360)
+			{}
+
+			static constexpr i32 enough_slow_speed = 60;
+			static constexpr i32 setting_up_speed = 60;
+			static constexpr i32 current_max = 0x4;
+		};
+
+		const Constant constant;
+
+		// ControlState
 		struct Idle final{};
 		struct Injecting final
 		{
-			 speed;
+			i32 injection_point;
+			i16 speed;
 		};
 		struct Stopping final{};
 		struct SettingUp final{};
 
-		CRSLib::Math::Pid<i16> current_pid;
+		std::variant<Idle, Injecting, Stopping, SettingUp> control_state{};
+		
+		MotorState motor_state{};
+
+		// pid
 		CRSLib::Math::Pid<i16> speed_pid;
 
-		std::variant<Idle, Injecting, Stopping, SettingUp> state_machine{};
-
-		Injector(const CRSLib::Math::Pid<float>& current_pid, const CRSLib::Math::Pid<float>& speed_pid, const IjectorRecord& initial_state) noexcept
-			:
-			current_pid(current_pid),
-			speed_pid(speed_pid),
-			motor_state(initial_state)
+		public:
+		Injector(const float gear_ratio, const CRSLib::Math::Pid<i16>& speed_pid) noexcept:
+			constant(gear_ratio),
+			speed_pid(speed_pid)
 		{}
 
-		// void inject_start(const float speed) noexcept
-		// {
-		// 	inject_speed.emplace<to_underlying(State::Injecting)>(speed);
-		// }
-
-		void update_motor_state(const IjectorRecord& state) noexcept
+		void update_motor_state(const Feedback& state) noexcept
 		{
-			motor_state = state;
+			motor_state.update(state);
 		}
 
-		friend struct UpdateCurrent final
+		void inject_start(const i16 speed) noexcept
+		{
+			// Idleでなければ何もしない
+			if(std::holds_alternative<Idle>(control_state))
+			{
+				control_state.template emplace<Injecting>(motor_state.get_total_angle(), speed);
+			}
+		}
+
+		private:
+		struct UpdateCurrent final
 		{
 			Injector& injector;
 
-			UpdateCurrent(Injector& injector) noexcept
-				:
+			UpdateCurrent(Injector& injector) noexcept:
 				injector(injector)
 			{}
 
-			u16 operator()(Idle) const noexcept
+			i16 operator()(Idle) noexcept
 			{
 				return injector.calc_target_current_from_speed(0.0);
 			}
 
-			u16 operator()(const Injecting injecting) const noexcept
+			i16 operator()(const Injecting& injecting) noexcept
 			{
-				if(injector.motor_state.clear_if_injected())
+				if(std::abs(injector.motor_state.get_total_angle() - injecting.injection_point) > injector.constant.barrel_length)
 				{
-					injector.inject_speed.emplace<Stopping>();
+					injector.control_state.template emplace<Stopping>();
 					return injector.calc_target_current_from_speed(0.0);
 				}
 				return injector.calc_target_current_from_speed(injecting.speed);
 			}
 
-			u16 operator()(Stopping) const noexcept
+			i16 operator()(Stopping) noexcept
 			{
-				if(std::abs(injector.motor_state.degree) < 1.0f / 60.f * gear_ratio_from_motor_to_injector && std::abs(injector.motor_state.speed) < 480 * 0.1)
+				if(std::abs(injector.motor_state.feedback.speed) < injector.constant.enough_slow_speed)
 				{
-					injector.inject_speed.emplace<to_underlying(State::SettingUp)>();
+					injector.control_state.template emplace<SettingUp>();
+					return injector.calc_target_current_from_speed(injector.constant.setting_up_speed);
 				}
 				return injector.calc_target_current_from_speed(0.0);
 			}
 
-			u16 operator()(SettingUp) const noexcept
+			i16 operator()(SettingUp) noexcept
 			{
-				if(injector.motor_state.degree < 0.1)
+				if(std::abs(injector.fixed_position() - injector.constant.barrel_length) < injector.constant.idling_point_epsilon)
 				{
-					injector.inject_speed.emplace<to_underlying(State::Idle)>();
+					injector.control_state.template emplace<Idle>();
+					return injector.calc_target_current_from_speed(0.0);
 				}
-				return injector.calc_target_current_from_speed(0.0);
+				return injector.calc_target_current_from_speed(injector.constant.setting_up_speed);
 			}
 		};
 
-		u16 update_target() noexcept
+		public:
+		i16 run_and_calc_target() noexcept
 		{
-			return std::visit(UpdateCurrent(*this), inject_speed);
+			return std::visit(UpdateCurrent(*this), control_state);
 		}
 
 		private:
-		u16 calc_target_current_from_speed(i16 target) noexcept
+		i16 calc_target_current_from_speed(i16 target) noexcept
 		{
-			const auto ret = current_pid.update(speed_pid.update(target, motor_state.speed), motor_state.current);
-			return std::max(-16384, std::min(16384, ret));
+			const auto ret = speed_pid.update(target, motor_state.feedback.speed);
+			return std::max<i16>(-constant.current_max, std::min<i16>(constant.current_max, ret));
+		}
+
+		i32 fixed_position() const noexcept
+		{
+			return motor_state.get_total_angle() % (2 * constant.barrel_length);
 		}
 	};
 }
